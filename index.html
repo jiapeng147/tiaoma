@@ -1,0 +1,872 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>批量条形码生成器</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <!-- 条形码生成库 -->
+    <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+    <!-- PDF导出库 -->
+    <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    <!-- ZIP压缩库 -->
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+    
+    <!-- Tailwind 配置 -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#165DFF',
+                        secondary: '#36CFFB',
+                        neutral: '#F5F7FA',
+                        dark: '#1D2129',
+                    },
+                    fontFamily: {
+                        inter: ['Inter', 'system-ui', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+    
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .content-auto {
+                content-visibility: auto;
+            }
+            .card-shadow {
+                box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.1);
+            }
+            .btn-hover {
+                @apply transition-all duration-300 hover:shadow-lg hover:-translate-y-0.5;
+            }
+            .input-focus {
+                @apply focus:border-primary focus:ring-2 focus:ring-primary/20 focus:outline-none;
+            }
+            .slider-thumb {
+                @apply appearance-none w-4 h-4 rounded-full bg-primary cursor-pointer;
+            }
+            .slider-track {
+                @apply appearance-none h-2 rounded-full bg-gray-200;
+            }
+            .history-item-hover {
+                @apply hover:bg-primary/5 cursor-pointer transition-colors;
+            }
+        }
+    </style>
+</head>
+<body class="font-inter bg-neutral min-h-screen">
+    <!-- 顶部导航 -->
+    <header class="bg-white shadow-sm sticky top-0 z-50">
+        <div class="container mx-auto px-4 py-4 flex justify-between items-center">
+            <div class="flex items-center space-x-2">
+                <i class="fa fa-barcode text-primary text-2xl"></i>
+                <h1 class="text-xl md:text-2xl font-bold text-dark">批量条形码生成器</h1>
+            </div>
+            <div class="hidden md:flex items-center space-x-4">
+                <a href="#" class="text-gray-600 hover:text-primary transition-colors">
+                    <i class="fa fa-question-circle mr-1"></i>使用帮助
+                </a>
+                <a href="#" class="text-gray-600 hover:text-primary transition-colors">
+                    <i class="fa fa-github mr-1"></i>源码
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <main class="container mx-auto px-4 py-8">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <!-- 左侧配置面板 -->
+            <div class="lg:col-span-1">
+                <div class="bg-white rounded-xl p-6 card-shadow">
+                    <h2 class="text-lg font-semibold text-dark mb-6 flex items-center">
+                        <i class="fa fa-cog text-primary mr-2"></i>生成配置
+                    </h2>
+                    
+                    <!-- 条形码数据输入 -->
+                    <div class="mb-6">
+                        <label for="barcode-data" class="block text-sm font-medium text-gray-700 mb-2">
+                            条形码数据 <span class="text-red-500">*</span>
+                        </label>
+                        <textarea 
+                            id="barcode-data" 
+                            class="w-full h-40 p-3 border border-gray-300 rounded-lg input-focus resize-y"
+                            placeholder="每行输入一个条形码数据，支持数字、字母和符号&#10;示例：&#10;123456789012&#10;ABC123456&#10;CODE-7890"
+                        ></textarea>
+                        <p class="text-xs text-gray-500 mt-1">每行一个编码，支持多种格式</p>
+                    </div>
+                    
+                    <!-- 条形码类型 -->
+                    <div class="mb-6">
+                        <label for="barcode-type" class="block text-sm font-medium text-gray-700 mb-2">
+                            条形码类型
+                        </label>
+                        <select 
+                            id="barcode-type" 
+                            class="w-full p-3 border border-gray-300 rounded-lg input-focus bg-white"
+                        >
+                            <option value="CODE128">CODE 128 (默认，支持字母数字)</option>
+                            <option value="EAN13">EAN-13 (13位数字)</option>
+                            <option value="EAN8">EAN-8 (8位数字)</option>
+                            <option value="UPC">UPC (12位数字)</option>
+                            <option value="CODE39">CODE 39 (支持字母数字)</option>
+                            <option value="ITF">ITF (仅数字)</option>
+                            <option value="MSI">MSI (仅数字)</option>
+                            <option value="PHARMA">Pharmacode (数字)</option>
+                        </select>
+                        <p class="text-xs text-gray-500 mt-1">不同类型对输入数据有格式要求</p>
+                    </div>
+                    
+                    <!-- 尺寸配置 - 新增滑块控制 -->
+                    <div class="mb-6">
+                        <label class="block text-sm font-medium text-gray-700 mb-4">
+                            条形码尺寸
+                        </label>
+                        
+                        <!-- 宽度控制 -->
+                        <div class="mb-4">
+                            <div class="flex justify-between mb-1">
+                                <span class="text-xs text-gray-600">宽度: <span id="width-value">300</span>px</span>
+                                <span class="text-xs text-gray-500">200-800px</span>
+                            </div>
+                            <input 
+                                type="range" 
+                                id="barcode-width-slider" 
+                                min="200" 
+                                max="800" 
+                                value="300" 
+                                class="w-full slider-track"
+                            >
+                            <input 
+                                type="number" 
+                                id="barcode-width" 
+                                min="200" 
+                                max="800" 
+                                value="300" 
+                                class="w-full p-2 mt-2 border border-gray-300 rounded-lg input-focus text-sm"
+                            >
+                        </div>
+                        
+                        <!-- 高度控制 -->
+                        <div>
+                            <div class="flex justify-between mb-1">
+                                <span class="text-xs text-gray-600">高度: <span id="height-value">150</span>px</span>
+                                <span class="text-xs text-gray-500">100-400px</span>
+                            </div>
+                            <input 
+                                type="range" 
+                                id="barcode-height-slider" 
+                                min="100" 
+                                max="400" 
+                                value="150" 
+                                class="w-full slider-track"
+                            >
+                            <input 
+                                type="number" 
+                                id="barcode-height" 
+                                min="100" 
+                                max="400" 
+                                value="150" 
+                                class="w-full p-2 mt-2 border border-gray-300 rounded-lg input-focus text-sm"
+                            >
+                        </div>
+                    </div>
+                    
+                    <!-- 实时缩放控制 -->
+                    <div class="mb-6">
+                        <div class="flex justify-between mb-1">
+                            <span class="text-xs text-gray-600">预览缩放: <span id="scale-value">100</span>%</span>
+                        </div>
+                        <input 
+                            type="range" 
+                            id="barcode-scale" 
+                            min="50" 
+                            max="200" 
+                            value="100" 
+                            class="w-full slider-track"
+                        >
+                        <p class="text-xs text-gray-500 mt-1">生成后可实时调整预览大小</p>
+                    </div>
+                    
+                    <!-- 颜色配置 -->
+                    <div class="grid grid-cols-2 gap-4 mb-6">
+                        <div>
+                            <label for="barcode-color" class="block text-sm font-medium text-gray-700 mb-2">
+                                条颜色
+                            </label>
+                            <div class="flex items-center">
+                                <input 
+                                    type="color" 
+                                    id="barcode-color" 
+                                    value="#000000" 
+                                    class="w-10 h-10 border-0 rounded-l-lg"
+                                >
+                                <input 
+                                    type="text" 
+                                    id="barcode-color-text" 
+                                    value="#000000" 
+                                    class="flex-1 p-3 border border-gray-300 rounded-r-lg input-focus"
+                                >
+                            </div>
+                        </div>
+                        <div>
+                            <label for="background-color" class="block text-sm font-medium text-gray-700 mb-2">
+                                背景色
+                            </label>
+                            <div class="flex items-center">
+                                <input 
+                                    type="color" 
+                                    id="background-color" 
+                                    value="#ffffff" 
+                                    class="w-10 h-10 border-0 rounded-l-lg"
+                                >
+                                <input 
+                                    type="text" 
+                                    id="background-color-text" 
+                                    value="#ffffff" 
+                                    class="flex-1 p-3 border border-gray-300 rounded-r-lg input-focus"
+                                >
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 显示文本配置 -->
+                    <div class="mb-6">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            显示选项
+                        </label>
+                        <div class="flex items-center space-x-2 mb-2">
+                            <input 
+                                type="checkbox" 
+                                id="show-text" 
+                                checked 
+                                class="w-4 h-4 text-primary rounded border-gray-300 focus:ring-primary"
+                            >
+                            <label for="show-text" class="text-sm text-gray-700">显示条形码文本</label>
+                        </div>
+                    </div>
+                    
+                    <!-- 操作按钮 -->
+                    <div class="flex space-x-3">
+                        <button 
+                            id="generate-btn" 
+                            class="flex-1 bg-primary text-white py-3 px-4 rounded-lg btn-hover flex items-center justify-center"
+                        >
+                            <i class="fa fa-magic mr-2"></i>生成条形码
+                        </button>
+                        <button 
+                            id="clear-btn" 
+                            class="bg-gray-200 text-gray-700 py-3 px-4 rounded-lg btn-hover flex items-center justify-center"
+                        >
+                            <i class="fa fa-trash"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 右侧预览和下载区域 -->
+            <div class="lg:col-span-2">
+                <div class="bg-white rounded-xl p-6 card-shadow mb-6">
+                    <div class="flex justify-between items-center mb-6">
+                        <h2 class="text-lg font-semibold text-dark flex items-center">
+                            <i class="fa fa-eye text-primary mr-2"></i>预览区域
+                        </h2>
+                        <div class="flex space-x-2">
+                            <button 
+                                id="download-all-btn" 
+                                class="bg-secondary text-white py-2 px-4 rounded-lg btn-hover flex items-center text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                                disabled
+                            >
+                                <i class="fa fa-compress mr-1"></i>打包下载ZIP
+                            </button>
+                            <button 
+                                id="download-pdf-btn" 
+                                class="bg-gray-700 text-white py-2 px-4 rounded-lg btn-hover flex items-center text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                                disabled
+                            >
+                                <i class="fa fa-file-pdf-o mr-1"></i>导出PDF
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- 预览容器 - 改为单行显示，添加滚动 -->
+                    <div id="preview-container" class="min-h-[300px] border-2 border-dashed border-gray-300 rounded-lg p-4 overflow-y-auto max-h-[600px]">
+                        <div class="text-center text-gray-500 py-16">
+                            <i class="fa fa-barcode text-5xl mb-3 opacity-30"></i>
+                            <p>配置参数后，点击"生成条形码"按钮查看预览</p>
+                            <p class="text-sm mt-1">支持批量生成多个条形码并下载</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 下载历史 -->
+                <div class="bg-white rounded-xl p-6 card-shadow">
+                    <h2 class="text-lg font-semibold text-dark mb-4 flex items-center">
+                        <i class="fa fa-history text-primary mr-2"></i>生成历史
+                        <span class="ml-2 text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-full">点击还原配置</span>
+                    </h2>
+                    <div id="history-container" class="space-y-3 max-h-[300px] overflow-y-auto pr-2">
+                        <div class="text-center text-gray-500 py-6">
+                            <p>暂无生成记录</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer class="bg-dark text-white py-8 mt-12">
+        <div class="container mx-auto px-4">
+            <div class="flex flex-col md:flex-row justify-between items-center">
+                <div class="flex items-center mb-4 md:mb-0">
+                    <i class="fa fa-barcode text-primary text-2xl mr-2"></i>
+                    <span class="text-lg font-bold">批量条形码生成器</span>
+                </div>
+                <div class="text-gray-400 text-sm">
+                    © 2025 条形码生成器 | 简单高效的批量条形码解决方案
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- 加载动画模态框 -->
+    <div id="loading-modal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 hidden">
+        <div class="bg-white rounded-lg p-6 flex flex-col items-center">
+            <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary mb-4"></div>
+            <p class="text-lg font-medium text-dark" id="loading-text">生成中...</p>
+        </div>
+    </div>
+
+    <script>
+        // DOM元素
+        const barcodeData = document.getElementById('barcode-data');
+        const barcodeType = document.getElementById('barcode-type');
+        const barcodeWidth = document.getElementById('barcode-width');
+        const barcodeWidthSlider = document.getElementById('barcode-width-slider');
+        const barcodeHeight = document.getElementById('barcode-height');
+        const barcodeHeightSlider = document.getElementById('barcode-height-slider');
+        const barcodeScale = document.getElementById('barcode-scale');
+        const widthValue = document.getElementById('width-value');
+        const heightValue = document.getElementById('height-value');
+        const scaleValue = document.getElementById('scale-value');
+        const barcodeColor = document.getElementById('barcode-color');
+        const barcodeColorText = document.getElementById('barcode-color-text');
+        const backgroundColor = document.getElementById('background-color');
+        const backgroundColorText = document.getElementById('background-color-text');
+        const showText = document.getElementById('show-text');
+        const generateBtn = document.getElementById('generate-btn');
+        const clearBtn = document.getElementById('clear-btn');
+        const downloadAllBtn = document.getElementById('download-all-btn');
+        const downloadPdfBtn = document.getElementById('download-pdf-btn');
+        const previewContainer = document.getElementById('preview-container');
+        const historyContainer = document.getElementById('history-container');
+        const loadingModal = document.getElementById('loading-modal');
+        const loadingText = document.getElementById('loading-text');
+        
+        // 存储历史记录数据（包含完整配置）
+        let historyRecords = [];
+        const MAX_HISTORY_COUNT = 20; // 最大历史记录数
+        
+        // 尺寸输入同步（滑块和输入框）
+        barcodeWidthSlider.addEventListener('input', () => {
+            const value = barcodeWidthSlider.value;
+            barcodeWidth.value = value;
+            widthValue.textContent = value;
+        });
+        
+        barcodeWidth.addEventListener('input', () => {
+            let value = parseInt(barcodeWidth.value);
+            if (isNaN(value)) value = 300;
+            if (value < 200) value = 200;
+            if (value > 800) value = 800;
+            
+            barcodeWidth.value = value;
+            barcodeWidthSlider.value = value;
+            widthValue.textContent = value;
+        });
+        
+        barcodeHeightSlider.addEventListener('input', () => {
+            const value = barcodeHeightSlider.value;
+            barcodeHeight.value = value;
+            heightValue.textContent = value;
+        });
+        
+        barcodeHeight.addEventListener('input', () => {
+            let value = parseInt(barcodeHeight.value);
+            if (isNaN(value)) value = 150;
+            if (value < 100) value = 100;
+            if (value > 400) value = 400;
+            
+            barcodeHeight.value = value;
+            barcodeHeightSlider.value = value;
+            heightValue.textContent = value;
+        });
+        
+        // 颜色输入同步
+        barcodeColor.addEventListener('input', () => {
+            barcodeColorText.value = barcodeColor.value;
+        });
+        
+        barcodeColorText.addEventListener('input', () => {
+            if (/^#([0-9A-F]{3}){1,2}$/i.test(barcodeColorText.value)) {
+                barcodeColor.value = barcodeColorText.value;
+            }
+        });
+        
+        backgroundColor.addEventListener('input', () => {
+            backgroundColorText.value = backgroundColor.value;
+        });
+        
+        backgroundColorText.addEventListener('input', () => {
+            if (/^#([0-9A-F]{3}){1,2}$/i.test(backgroundColorText.value)) {
+                backgroundColor.value = backgroundColorText.value;
+            }
+        });
+        
+        // 生成条形码
+        let generatedBarcodes = [];
+        
+        generateBtn.addEventListener('click', () => {
+            const dataList = barcodeData.value.trim().split('\n').filter(item => item.trim() !== '');
+            
+            if (dataList.length === 0) {
+                alert('请输入条形码数据');
+                return;
+            }
+            
+            // 保存当前配置到历史记录
+            saveCurrentConfigToHistory(dataList);
+            
+            // 显示加载动画
+            loadingModal.classList.remove('hidden');
+            loadingText.textContent = `正在生成 ${dataList.length} 个条形码...`;
+            
+            // 清空预览区域
+            previewContainer.innerHTML = '';
+            generatedBarcodes = [];
+            
+            // 延迟执行，让加载动画显示
+            setTimeout(() => {
+                try {
+                    // 改为单行显示（grid-cols-1）
+                    previewContainer.className = `grid grid-cols-1 gap-6 p-4 overflow-y-auto max-h-[600px]`;
+                    
+                    let successCount = 0;
+                    
+                    // 生成每个条形码
+                    dataList.forEach((data, index) => {
+                        const barcodeItem = document.createElement('div');
+                        barcodeItem.className = 'flex flex-col items-center p-6 border border-gray-100 rounded-lg shadow-sm hover:shadow-md transition-shadow';
+                        barcodeItem.id = `barcode-item-${index}`;
+                        
+                        // 创建canvas元素
+                        const canvas = document.createElement('canvas');
+                        canvas.id = `barcode-${index}`;
+                        canvas.className = 'mb-4';
+                        
+                        try {
+                            // 生成条形码
+                            JsBarcode(canvas, data.trim(), {
+                                format: barcodeType.value,
+                                width: 2, // 线条宽度
+                                height: parseInt(barcodeHeight.value) - (showText.checked ? 30 : 0), // 条形码高度
+                                displayValue: showText.checked,
+                                fontOptions: 'bold',
+                                font: 'Inter',
+                                fontSize: 14,
+                                textMargin: 5,
+                                background: backgroundColor.value,
+                                lineColor: barcodeColor.value,
+                                margin: 10,
+                                scale: parseInt(barcodeWidth.value) / 300 // 基于300px基准缩放
+                            });
+                            
+                            // 添加到预览区域
+                            barcodeItem.appendChild(canvas);
+                            
+                            // 添加下载按钮
+                            const downloadBtn = document.createElement('button');
+                            downloadBtn.className = 'mt-2 bg-primary/10 text-primary py-2 px-4 rounded text-sm hover:bg-primary/20 transition-colors';
+                            downloadBtn.innerHTML = '<i class="fa fa-download mr-1"></i>下载此条形码';
+                            downloadBtn.addEventListener('click', () => {
+                                downloadBarcode(canvas, data.trim());
+                            });
+                            
+                            barcodeItem.appendChild(downloadBtn);
+                            previewContainer.appendChild(barcodeItem);
+                            
+                            // 保存到生成列表（包含base64数据用于压缩）
+                            generatedBarcodes.push({
+                                canvas: canvas,
+                                data: data.trim(),
+                                element: barcodeItem,
+                                base64: canvas.toDataURL('image/png').split(',')[1] // 获取base64数据（去除前缀）
+                            });
+                            
+                            successCount++;
+                            
+                        } catch (barcodeError) {
+                            console.error(`生成条形码 ${data} 失败:`, barcodeError);
+                            // 显示错误提示
+                            const errorDiv = document.createElement('div');
+                            errorDiv.className = 'text-center text-red-500 py-4';
+                            errorDiv.innerHTML = `
+                                <i class="fa fa-exclamation-circle text-2xl mb-2"></i>
+                                <p class="text-sm">条形码 ${data} 生成失败</p>
+                                <p class="text-xs mt-1">可能原因：数据格式不匹配所选类型</p>
+                            `;
+                            barcodeItem.appendChild(errorDiv);
+                            previewContainer.appendChild(barcodeItem);
+                        }
+                    });
+                    
+                    // 启用批量下载按钮（至少成功生成一个）
+                    downloadAllBtn.disabled = successCount === 0;
+                    downloadPdfBtn.disabled = successCount === 0;
+                    
+                    // 更新历史记录UI
+                    renderHistoryRecords();
+                    
+                    // 自动滚动到预览区域
+                    previewContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    
+                    // 绑定缩放事件
+                    bindScaleEvent();
+                    
+                } catch (error) {
+                    console.error('生成条形码失败:', error);
+                    previewContainer.innerHTML = `
+                        <div class="text-center text-red-500 py-16">
+                            <i class="fa fa-exclamation-circle text-5xl mb-3"></i>
+                            <p>生成失败，请检查输入数据和配置</p>
+                        </div>
+                    `;
+                } finally {
+                    // 隐藏加载动画
+                    loadingModal.classList.add('hidden');
+                }
+            }, 500);
+        });
+        
+        // 绑定缩放事件
+        function bindScaleEvent() {
+            barcodeScale.addEventListener('input', () => {
+                const scale = barcodeScale.value;
+                scaleValue.textContent = scale;
+                
+                // 应用缩放比例
+                generatedBarcodes.forEach(item => {
+                    item.element.style.transform = `scale(${scale / 100})`;
+                    item.element.style.transformOrigin = 'top center';
+                    item.element.style.transition = 'transform 0.3s ease';
+                    item.element.style.margin = `${(scale / 100) * 16}px 0`;
+                });
+            });
+        }
+        
+        // 清空输入
+        clearBtn.addEventListener('click', () => {
+            barcodeData.value = '';
+            previewContainer.innerHTML = `
+                <div class="text-center text-gray-500 py-16">
+                    <i class="fa fa-barcode text-5xl mb-3 opacity-30"></i>
+                    <p>配置参数后，点击"生成条形码"按钮查看预览</p>
+                    <p class="text-sm mt-1">支持批量生成多个条形码并下载</p>
+                </div>
+            `;
+            generatedBarcodes = [];
+            downloadAllBtn.disabled = true;
+            downloadPdfBtn.disabled = true;
+            
+            // 重置缩放
+            barcodeScale.value = 100;
+            scaleValue.textContent = 100;
+        });
+        
+        // 下载单个条形码
+        function downloadBarcode(canvas, data) {
+            const link = document.createElement('a');
+            link.download = `barcode-${data.replace(/[^a-zA-Z0-9]/g, '-')}.png`;
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+        }
+        
+        // 批量下载 - ZIP压缩包下载
+        downloadAllBtn.addEventListener('click', async () => {
+            if (generatedBarcodes.length === 0) return;
+            
+            loadingModal.classList.remove('hidden');
+            loadingText.textContent = `正在打包 ${generatedBarcodes.length} 个条形码...`;
+            
+            try {
+                // 创建ZIP对象
+                const zip = new JSZip();
+                
+                // 创建图片文件夹
+                const imgFolder = zip.folder('条形码图片');
+                
+                // 添加所有条形码图片到ZIP
+                for (let i = 0; i < generatedBarcodes.length; i++) {
+                    const barcode = generatedBarcodes[i];
+                    const fileName = `barcode-${barcode.data.replace(/[^a-zA-Z0-9]/g, '-')}.png`;
+                    
+                    // 将base64数据添加到ZIP（已在生成时保存，避免重复转换）
+                    imgFolder.file(fileName, barcode.base64, { base64: true });
+                    
+                    // 更新加载进度
+                    loadingText.textContent = `正在打包 ${i + 1}/${generatedBarcodes.length} 个条形码...`;
+                }
+                
+                // 生成ZIP文件并下载
+                const content = await zip.generateAsync({ 
+                    type: 'blob',
+                    compression: 'DEFLATE', // 压缩算法
+                    compressionOptions: { level: 6 } // 压缩级别（1-9，6为默认）
+                });
+                
+                // 下载ZIP文件
+                const timestamp = new Date().getTime();
+                saveAs(content, `批量条形码_${timestamp}.zip`);
+                
+            } catch (error) {
+                console.error('ZIP打包失败:', error);
+                alert('打包下载失败，请重试');
+            } finally {
+                loadingModal.classList.add('hidden');
+            }
+        });
+        
+        // PDF导出功能
+        downloadPdfBtn.addEventListener('click', async () => {
+            if (generatedBarcodes.length === 0) return;
+            
+            loadingModal.classList.remove('hidden');
+            loadingText.textContent = '正在生成PDF文件...';
+            
+            try {
+                // 导入jsPDF
+                const { jsPDF } = window.jspdf;
+                
+                // 创建PDF文档（纵向A4）
+                const pdf = new jsPDF({
+                    orientation: 'portrait',
+                    unit: 'mm',
+                    format: 'a4'
+                });
+                
+                // PDF页面边距
+                const margin = 15;
+                const pageWidth = pdf.internal.pageSize.getWidth() - margin * 2;
+                const pageHeight = pdf.internal.pageSize.getHeight() - margin * 2;
+                
+                let currentY = margin;
+                
+                // 处理每个条形码
+                for (let i = 0; i < generatedBarcodes.length; i++) {
+                    const barcode = generatedBarcodes[i];
+                    
+                    // 将canvas转换为图片数据
+                    const imgData = barcode.canvas.toDataURL('image/png');
+                    
+                    // 计算图片在PDF中的尺寸（保持比例）
+                    const imgWidth = pageWidth;
+                    const imgHeight = (barcode.canvas.height / barcode.canvas.width) * imgWidth;
+                    
+                    // 如果当前页剩余空间不够，添加新页面
+                    if (currentY + imgHeight + 10 > margin + pageHeight) {
+                        pdf.addPage();
+                        currentY = margin;
+                    }
+                    
+                    // 添加图片到PDF
+                    pdf.addImage(imgData, 'PNG', margin, currentY, imgWidth, imgHeight);
+                    
+                    // 添加条形码数据文本
+                    pdf.setTextColor(33, 33, 33);
+                    pdf.setFontSize(10);
+                    pdf.text(barcode.data, margin, currentY + imgHeight + 5);
+                    
+                    // 更新当前Y坐标
+                    currentY += imgHeight + 15;
+                }
+                
+                // 保存PDF文件
+                pdf.save(`批量条形码_${new Date().getTime()}.pdf`);
+                
+            } catch (error) {
+                console.error('PDF导出失败:', error);
+                alert('PDF导出失败，请重试');
+            } finally {
+                loadingModal.classList.add('hidden');
+            }
+        });
+        
+        // 保存当前配置到历史记录
+        function saveCurrentConfigToHistory(dataList) {
+            const currentConfig = {
+                id: Date.now(), // 唯一ID
+                timestamp: new Date().toLocaleString(),
+                dataList: [...dataList], // 条形码数据列表
+                barcodeType: barcodeType.value,
+                width: barcodeWidth.value,
+                height: barcodeHeight.value,
+                barcodeColor: barcodeColor.value,
+                backgroundColor: backgroundColor.value,
+                showText: showText.checked,
+                count: dataList.length // 生成数量
+            };
+            
+            // 添加到历史记录数组（头部添加）
+            historyRecords.unshift(currentConfig);
+            
+            // 限制历史记录数量
+            if (historyRecords.length > MAX_HISTORY_COUNT) {
+                historyRecords = historyRecords.slice(0, MAX_HISTORY_COUNT);
+            }
+            
+            // 保存到本地存储（可选）
+            localStorage.setItem('barcodeHistory', JSON.stringify(historyRecords));
+        }
+        
+        // 渲染历史记录UI
+        function renderHistoryRecords() {
+            if (historyRecords.length === 0) {
+                historyContainer.innerHTML = `
+                    <div class="text-center text-gray-500 py-6">
+                        <p>暂无生成记录</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            // 生成历史记录HTML
+            let historyHtml = '';
+            historyRecords.forEach((record, index) => {
+                historyHtml += `
+                    <div class="history-item-hover flex justify-between items-center p-3 border border-gray-100 rounded-lg" 
+                         data-record-id="${record.id}">
+                        <div class="flex items-center flex-1">
+                            <i class="fa fa-history text-primary mr-2"></i>
+                            <div class="min-w-0">
+                                <p class="text-sm font-medium truncate">${record.count}个条形码 · ${record.barcodeType}</p>
+                                <p class="text-xs text-gray-500 truncate">${record.timestamp}</p>
+                            </div>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <button class="text-primary text-sm restore-btn" data-index="${index}">
+                                <i class="fa fa-refresh mr-1"></i>还原
+                            </button>
+                            <button class="text-gray-500 text-sm delete-btn" data-index="${index}">
+                                <i class="fa fa-times"></i>
+                            </button>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            historyContainer.innerHTML = historyHtml;
+            
+            // 绑定还原按钮事件
+            document.querySelectorAll('.restore-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation(); // 阻止事件冒泡
+                    const index = parseInt(btn.getAttribute('data-index'));
+                    restoreHistoryRecord(index);
+                });
+            });
+            
+            // 绑定删除按钮事件
+            document.querySelectorAll('.delete-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation(); // 阻止事件冒泡
+                    const index = parseInt(btn.getAttribute('data-index'));
+                    deleteHistoryRecord(index);
+                });
+            });
+            
+            // 绑定整行点击事件（还原）
+            document.querySelectorAll('.history-item-hover').forEach(item => {
+                item.addEventListener('click', () => {
+                    const index = parseInt(item.querySelector('.restore-btn').getAttribute('data-index'));
+                    restoreHistoryRecord(index);
+                });
+            });
+        }
+        
+        // 还原历史记录
+        function restoreHistoryRecord(index) {
+            if (index < 0 || index >= historyRecords.length) return;
+            
+            const record = historyRecords[index];
+            
+            // 还原配置参数
+            barcodeData.value = record.dataList.join('\n');
+            barcodeType.value = record.barcodeType;
+            barcodeWidth.value = record.width;
+            barcodeWidthSlider.value = record.width;
+            widthValue.textContent = record.width;
+            barcodeHeight.value = record.height;
+            barcodeHeightSlider.value = record.height;
+            heightValue.textContent = record.height;
+            barcodeColor.value = record.barcodeColor;
+            barcodeColorText.value = record.barcodeColor;
+            backgroundColor.value = record.backgroundColor;
+            backgroundColorText.value = record.backgroundColor;
+            showText.checked = record.showText;
+            
+            // 自动生成条形码
+            generateBtn.click();
+            
+            // 滚动到配置面板
+            barcodeData.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+        
+        // 删除历史记录
+        function deleteHistoryRecord(index) {
+            if (index < 0 || index >= historyRecords.length) return;
+            
+            // 从数组中删除
+            historyRecords.splice(index, 1);
+            
+            // 保存到本地存储
+            localStorage.setItem('barcodeHistory', JSON.stringify(historyRecords));
+            
+            // 重新渲染
+            renderHistoryRecords();
+        }
+        
+        // 从本地存储加载历史记录
+        function loadHistoryFromLocalStorage() {
+            try {
+                const savedHistory = localStorage.getItem('barcodeHistory');
+                if (savedHistory) {
+                    historyRecords = JSON.parse(savedHistory);
+                    // 验证数据格式
+                    historyRecords = historyRecords.filter(record => 
+                        record.id && record.dataList && Array.isArray(record.dataList)
+                    );
+                    renderHistoryRecords();
+                }
+            } catch (error) {
+                console.error('加载历史记录失败:', error);
+                historyRecords = [];
+            }
+        }
+        
+        // 示例数据填充
+        document.addEventListener('DOMContentLoaded', () => {
+            // 加载本地存储的历史记录
+            loadHistoryFromLocalStorage();
+            
+            if (!barcodeData.value && historyRecords.length === 0) {
+                barcodeData.value = `123456789012\nABC123456\nCODE-7890\n87654321\nUPC12345678901`;
+            }
+        });
+    </script>
+</body>
+</html>
