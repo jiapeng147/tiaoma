@@ -2,13 +2,13 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>批量条形码生成器</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
     <!-- 条形码生成库 -->
     <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
-    <!-- PDF导出库 -->
+    <!-- PDF导出库（使用兼容移动端的版本） -->
     <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
     <!-- ZIP压缩库 -->
@@ -57,6 +57,10 @@
             .history-item-hover {
                 @apply hover:bg-primary/5 cursor-pointer transition-colors;
             }
+            /* 移动端按钮适配 */
+            .mobile-btn {
+                @apply py-1.5 px-3 text-xs;
+            }
         }
     </style>
 </head>
@@ -72,9 +76,18 @@
                 <a href="#" class="text-gray-600 hover:text-primary transition-colors">
                     <i class="fa fa-question-circle mr-1"></i>使用帮助
                 </a>
-                <a href="https://github.com/jiapeng147/tiaoma/" class="text-gray-600 hover:text-primary transition-colors">
+                <a href="https://github.com/jiapeng147/tiaoma/" target="_blank" rel="noopener noreferrer" class="text-gray-600 hover:text-primary transition-colors">
                     <i class="fa fa-github mr-1"></i>源码
                 </a>
+            </div>
+            <!-- 移动端菜单按钮 -->
+            <div class="md:hidden flex items-center space-x-3">
+                <a href="https://github.com/jiapeng147/tiaoma/" target="_blank" rel="noopener noreferrer" class="text-gray-600">
+                    <i class="fa fa-github text-xl"></i>
+                </a>
+                <button class="text-gray-600">
+                    <i class="fa fa-question-circle text-xl"></i>
+                </button>
             </div>
         </div>
     </header>
@@ -272,21 +285,21 @@
             <!-- 右侧预览和下载区域 -->
             <div class="lg:col-span-2">
                 <div class="bg-white rounded-xl p-6 card-shadow mb-6">
-                    <div class="flex justify-between items-center mb-6">
+                    <div class="flex justify-between items-center mb-6 flex-wrap gap-3">
                         <h2 class="text-lg font-semibold text-dark flex items-center">
                             <i class="fa fa-eye text-primary mr-2"></i>预览区域
                         </h2>
                         <div class="flex space-x-2">
                             <button 
                                 id="download-all-btn" 
-                                class="bg-secondary text-white py-2 px-4 rounded-lg btn-hover flex items-center text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                                class="bg-secondary text-white mobile-btn btn-hover flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
                                 disabled
                             >
                                 <i class="fa fa-compress mr-1"></i>打包下载ZIP
                             </button>
                             <button 
                                 id="download-pdf-btn" 
-                                class="bg-gray-700 text-white py-2 px-4 rounded-lg btn-hover flex items-center text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                                class="bg-gray-700 text-white mobile-btn btn-hover flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
                                 disabled
                             >
                                 <i class="fa fa-file-pdf-o mr-1"></i>导出PDF
@@ -371,6 +384,10 @@
         // 存储历史记录数据（包含完整配置）
         let historyRecords = [];
         const MAX_HISTORY_COUNT = 20; // 最大历史记录数
+        const MOBILE_MAX_PDF_COUNT = 10; // 移动端单次PDF最大支持数量
+        
+        // 检测是否为移动设备
+        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
         
         // 尺寸输入同步（滑块和输入框）
         barcodeWidthSlider.addEventListener('input', () => {
@@ -439,6 +456,13 @@
                 return;
             }
             
+            // 移动端数量限制提示
+            if (isMobile && dataList.length > 20) {
+                if (!confirm(`移动端一次生成过多条形码可能会影响性能，建议一次生成不超过20个。\n是否继续生成${dataList.length}个条形码？`)) {
+                    return;
+                }
+            }
+            
             // 保存当前配置到历史记录
             saveCurrentConfigToHistory(dataList);
             
@@ -500,12 +524,14 @@
                             barcodeItem.appendChild(downloadBtn);
                             previewContainer.appendChild(barcodeItem);
                             
-                            // 保存到生成列表（包含base64数据用于压缩）
+                            // 保存到生成列表（包含base64数据用于压缩和PDF）
                             generatedBarcodes.push({
                                 canvas: canvas,
                                 data: data.trim(),
                                 element: barcodeItem,
-                                base64: canvas.toDataURL('image/png').split(',')[1] // 获取base64数据（去除前缀）
+                                base64: canvas.toDataURL('image/png').split(',')[1], // 获取base64数据（去除前缀）
+                                // 预生成PDF专用的小型图片数据（移动端优化）
+                                smallBase64: isMobile ? canvas.toDataURL('image/png', 0.7).split(',')[1] : null
                             });
                             
                             successCount++;
@@ -615,8 +641,11 @@
                     const barcode = generatedBarcodes[i];
                     const fileName = `barcode-${barcode.data.replace(/[^a-zA-Z0-9]/g, '-')}.png`;
                     
-                    // 将base64数据添加到ZIP（已在生成时保存，避免重复转换）
-                    imgFolder.file(fileName, barcode.base64, { base64: true });
+                    // 移动端使用压缩后的图片数据
+                    const imageData = isMobile ? barcode.smallBase64 : barcode.base64;
+                    
+                    // 将base64数据添加到ZIP
+                    imgFolder.file(fileName, imageData, { base64: true });
                     
                     // 更新加载进度
                     loadingText.textContent = `正在打包 ${i + 1}/${generatedBarcodes.length} 个条形码...`;
@@ -625,8 +654,8 @@
                 // 生成ZIP文件并下载
                 const content = await zip.generateAsync({ 
                     type: 'blob',
-                    compression: 'DEFLATE', // 压缩算法
-                    compressionOptions: { level: 6 } // 压缩级别（1-9，6为默认）
+                    compression: isMobile ? 'STORE' : 'DEFLATE', // 移动端禁用压缩，提升速度
+                    compressionOptions: { level: 6 }
                 });
                 
                 // 下载ZIP文件
@@ -641,9 +670,15 @@
             }
         });
         
-        // PDF导出功能
+        // PDF导出功能（移动端优化版）
         downloadPdfBtn.addEventListener('click', async () => {
             if (generatedBarcodes.length === 0) return;
+            
+            // 移动端PDF数量限制
+            if (isMobile && generatedBarcodes.length > MOBILE_MAX_PDF_COUNT) {
+                alert(`移动端单次导出PDF最多支持${MOBILE_MAX_PDF_COUNT}个条形码，请分批导出或使用ZIP打包下载`);
+                return;
+            }
             
             loadingModal.classList.remove('hidden');
             loadingText.textContent = '正在生成PDF文件...';
@@ -652,17 +687,23 @@
                 // 导入jsPDF
                 const { jsPDF } = window.jspdf;
                 
-                // 创建PDF文档（纵向A4）
-                const pdf = new jsPDF({
+                // 移动端优化配置：减小页面尺寸，降低分辨率
+                const pdfConfig = isMobile ? {
+                    orientation: 'portrait',
+                    unit: 'mm',
+                    format: 'a5', // 移动端使用A5尺寸，减小文件体积
+                    hotfixes: ['px_scaling'] // 启用移动端像素缩放修复
+                } : {
                     orientation: 'portrait',
                     unit: 'mm',
                     format: 'a4'
-                });
+                };
                 
-                // PDF页面边距
-                const margin = 15;
+                const pdf = new jsPDF(pdfConfig);
+                
+                // PDF页面边距（移动端减小边距）
+                const margin = isMobile ? 10 : 15;
                 const pageWidth = pdf.internal.pageSize.getWidth() - margin * 2;
-                const pageHeight = pdf.internal.pageSize.getHeight() - margin * 2;
                 
                 let currentY = margin;
                 
@@ -670,37 +711,57 @@
                 for (let i = 0; i < generatedBarcodes.length; i++) {
                     const barcode = generatedBarcodes[i];
                     
-                    // 将canvas转换为图片数据
-                    const imgData = barcode.canvas.toDataURL('image/png');
+                    // 移动端使用压缩后的图片数据，减小内存占用
+                    const imgData = isMobile 
+                        ? `data:image/png;base64,${barcode.smallBase64}`
+                        : barcode.canvas.toDataURL('image/png');
                     
                     // 计算图片在PDF中的尺寸（保持比例）
                     const imgWidth = pageWidth;
+                    // 从Canvas获取原始尺寸计算比例（避免变形）
                     const imgHeight = (barcode.canvas.height / barcode.canvas.width) * imgWidth;
                     
+                    // 移动端额外压缩高度，节省空间
+                    const finalImgHeight = isMobile ? imgHeight * 0.8 : imgHeight;
+                    
                     // 如果当前页剩余空间不够，添加新页面
-                    if (currentY + imgHeight + 10 > margin + pageHeight) {
+                    if (currentY + finalImgHeight + 10 > pdf.internal.pageSize.getHeight() - margin) {
                         pdf.addPage();
                         currentY = margin;
                     }
                     
-                    // 添加图片到PDF
-                    pdf.addImage(imgData, 'PNG', margin, currentY, imgWidth, imgHeight);
+                    // 添加图片到PDF（移动端降低质量）
+                    pdf.addImage(imgData, 'PNG', margin, currentY, imgWidth, finalImgHeight, undefined, 'FAST');
                     
                     // 添加条形码数据文本
                     pdf.setTextColor(33, 33, 33);
-                    pdf.setFontSize(10);
-                    pdf.text(barcode.data, margin, currentY + imgHeight + 5);
+                    pdf.setFontSize(isMobile ? 8 : 10);
+                    pdf.text(barcode.data, margin, currentY + finalImgHeight + 4);
                     
                     // 更新当前Y坐标
-                    currentY += imgHeight + 15;
+                    currentY += finalImgHeight + (isMobile ? 8 : 15);
+                    
+                    // 移动端进度更新，避免假死
+                    if (isMobile && i % 3 === 0) {
+                        await new Promise(resolve => setTimeout(resolve, 10));
+                    }
                 }
                 
-                // 保存PDF文件
-                pdf.save(`批量条形码_${new Date().getTime()}.pdf`);
+                // 保存PDF文件（移动端添加标记）
+                const timestamp = new Date().getTime();
+                const fileName = isMobile 
+                    ? `批量条形码_移动端_${timestamp}.pdf`
+                    : `批量条形码_${timestamp}.pdf`;
+                
+                pdf.save(fileName);
                 
             } catch (error) {
                 console.error('PDF导出失败:', error);
-                alert('PDF导出失败，请重试');
+                // 移动端错误提示更详细
+                const errorMsg = isMobile 
+                    ? 'PDF导出失败！可能是由于移动端内存不足，请尝试：\n1. 减少单次导出数量\n2. 使用ZIP打包下载\n3. 切换到桌面端导出'
+                    : 'PDF导出失败，请重试';
+                alert(errorMsg);
             } finally {
                 loadingModal.classList.add('hidden');
             }
@@ -729,7 +790,7 @@
                 historyRecords = historyRecords.slice(0, MAX_HISTORY_COUNT);
             }
             
-            // 保存到本地存储（可选）
+            // 保存到本地存储
             localStorage.setItem('barcodeHistory', JSON.stringify(historyRecords));
         }
         
@@ -804,6 +865,13 @@
             
             const record = historyRecords[index];
             
+            // 移动端还原数量提示
+            if (isMobile && record.count > 20) {
+                if (!confirm(`此历史记录包含${record.count}个条形码，移动端还原可能会影响性能。是否继续？`)) {
+                    return;
+                }
+            }
+            
             // 还原配置参数
             barcodeData.value = record.dataList.join('\n');
             barcodeType.value = record.barcodeType;
@@ -858,11 +926,22 @@
             }
         }
         
-        // 示例数据填充
+        // 初始化页面
         document.addEventListener('DOMContentLoaded', () => {
             // 加载本地存储的历史记录
             loadHistoryFromLocalStorage();
             
+            // 移动端优化：调整默认尺寸，减小内存占用
+            if (isMobile) {
+                barcodeWidth.value = 250;
+                barcodeWidthSlider.value = 250;
+                widthValue.textContent = 250;
+                barcodeHeight.value = 120;
+                barcodeHeightSlider.value = 120;
+                heightValue.textContent = 120;
+            }
+            
+            // 填充示例数据（如果没有历史记录）
             if (!barcodeData.value && historyRecords.length === 0) {
                 barcodeData.value = `123456789012\nABC123456\nCODE-7890\n87654321\nUPC12345678901`;
             }
